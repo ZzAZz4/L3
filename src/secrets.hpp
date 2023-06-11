@@ -1,2 +1,2 @@
-#define SECRET_WIFI_SSID "5G"
-#define SECRET_WIFI_PASSWORD "._.XDASDF"
+#define SECRET_WIFI_SSID "my_wifi_ssid"
+#define SECRET_WIFI_PASSWORD "12345678"
