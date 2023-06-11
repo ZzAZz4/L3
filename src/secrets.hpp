@@ -1,0 +1,2 @@
+#define SECRET_WIFI_SSID "5G"
+#define SECRET_WIFI_PASSWORD "._.XDASDF"
