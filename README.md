@@ -1,6 +1,6 @@
 # L3
 
-An MQTT client using ESP32.
+An MQTT client for temperature and humidity readings and publication using ESP32 and DHT11.
 
 You can run this project using PlatformIO or by just opening `src/main.cpp` and adding the required definitions {`SECRET_WIFI_SSID` and `SECRET_WIFI_PASSWORD`}.
 
