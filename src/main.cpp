@@ -21,7 +21,7 @@ constexpr auto WIFI_PASSWORD = SECRET_WIFI_PASSWORD;
 auto espClient = WiFiClient{};
 
 /*  MQTT */
-constexpr auto MQTT_BROKER_IP = "192.168.27.229";
+constexpr auto MQTT_BROKER_IP = "192.168.138.229";
 constexpr auto MQTT_PORT = 1883;
 constexpr auto MQTT_TOPIC_DATA = "iot/sensor_data";
 constexpr auto MQTT_TOPIC_SHOULD_PUBLISH = "iot/should_publish";
@@ -34,6 +34,7 @@ constexpr auto DAYLIGHT_OFFSET_SEC = 0;
 /* */
 
 /*  State   */
+bool active = true;
 long system_time = 0;
 long last_publish = 0;
 
@@ -51,7 +52,7 @@ void error_blink_5s() {
 /* Loops until the ESP32 connects to the WiFi network */
 void connect_to_wifi() {
     Serial.println("DEBUG: connecting to WiFi...");
-    while (!WiFi.isConnected()) {
+    while (!WiFi.isConnected()) { // just keep trying until it works
         Serial.println("ERROR: failed to connect to WiFi. Checking again in 5 seconds");
         error_blink_5s();
     }
@@ -61,11 +62,33 @@ void connect_to_wifi() {
 /* Loops until the ESP32 connects to the MQTT broker */
 void connect_to_mqtt() {
     Serial.println("DEBUG: connecting to MQTT broker");
-    while (!client.connect("ESP8266Client")) {
+    while (!client.connect("ESP8266Client")) { // just keep trying until it works    
         Serial.println("ERROR: failed to connect to MQTT broker. Retrying in 5 seconds");
         error_blink_5s();
     }
     Serial.println("DEBUG: connected to MQTT broker");
+}
+
+void mqtt_callback(char* topic, byte* payload, unsigned int length) {
+    Serial.println("DEBUG: received message from MQTT broker");
+    Serial.print("DEBUG: Topic: ");
+    Serial.println(topic);
+    Serial.print("DEBUG: Payload: ");
+    for (int i = 0; i < length; i++) {
+        Serial.print((char) payload[i]);
+    }
+    Serial.println();
+
+    if (strcmp(topic, MQTT_TOPIC_SHOULD_PUBLISH) == 0) {
+        if (length != 1 || (char) payload[0] != '0' && (char) payload[0] != '1') {
+            Serial.println("ERROR: invalid payload");
+            return;
+        }
+        Serial.print("DEBUG: setting active to ");
+        Serial.println((char) payload[0] == '1' ? "true" : "false");
+        active = (char) payload[0] == '1';
+        digitalWrite(LED_PIN, active ? HIGH : LOW);
+    }
 }
 
 /*  Reads the current time from the ntp server and formats it as a string.
@@ -95,6 +118,7 @@ bool publish_new_message() {
         return false;
     }
 
+    // format everything as if it was a json string. Floats cannot be directly sprintf'd, so we have to convert them to strings first.
     char payload[64];
     char tempString[8];
     char humString[8];
@@ -113,18 +137,28 @@ bool publish_new_message() {
 void setup() {
     Serial.begin(9600);
 
+    // builtin led
     pinMode(LED_PIN, OUTPUT);
     digitalWrite(LED_PIN, HIGH);
 
+    // DHT11 sensor
     dht.begin();
 
-    configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER);
-
+    // WiFi
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     connect_to_wifi();
 
+    // MQTT
     client.setServer(MQTT_BROKER_IP, MQTT_PORT);
     connect_to_mqtt();
+
+    // NTP
+    configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER);
+
+    // set callback
+    client.setCallback(mqtt_callback);
+    client.subscribe(MQTT_TOPIC_SHOULD_PUBLISH);
+
 
     Serial.println("DEBUG: setup finished with no errors");
 }
@@ -134,20 +168,24 @@ void setup() {
     If not, reconnects.
     Also checks if a new message should be published, and if so, it publishes new data. */
 void loop() {
-    if (!WiFi.isConnected()) {
+    if (!WiFi.isConnected()) { // reconnect to WiFi
         Serial.println("ERROR: WiFi connection lost.");
         connect_to_wifi();
     }
 
-    if (!client.connected()) {
+    if (!client.connected()) { // reconnect to MQTT
         Serial.println("ERROR: MQTT connection lost.");
-        connect_to_mqtt();
+        connect_to_mqtt(); 
     }
 
     client.loop();
 
+    if (!active) { // if not meant to publish anything, just return
+        return;
+    }
+
     system_time = millis();
-    if (system_time - last_publish > 5000) {
+    if (system_time - last_publish > 5000) { // if more than 5 seconds have passed since the last publish, publish a new message
         Serial.println("DEBUG: publishing new message to the MQTT broker");
         const auto success = publish_new_message();
         if (!success) {
